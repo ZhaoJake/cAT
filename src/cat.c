@@ -1158,7 +1158,8 @@ static int parse_int_decimal(struct cat_object* self, int64_t* ret)
     while (1)
     {
         ch = get_atcmd_buf(self)[self->position++];
-
+        if (ch == ' ')
+            continue; //!< skip space
         if ((ok != 0) && ((ch == 0) || (ch == ',')))
         {
             val *= sign;
@@ -1363,6 +1364,8 @@ static int parse_buffer_string(struct cat_object* self)
         switch (state)
         {
         case 0:
+            if(ch == ' ')
+                continue; //!< skip space
             if (ch != '"')
                 return -1;
             state = 1;

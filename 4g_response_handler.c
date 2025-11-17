@@ -38,6 +38,13 @@ typedef struct {
 
 static sms_info_t received_sms = {0};
 
+static int net_status_handle(const struct cat_variable* var, const size_t write_size)
+{
+    uint8_t paramter = ((uint8_t*)var->data)[0];
+    printf("\n[URC] Received paramter %u\n", paramter);
+    return 0;
+}
+
 // ================================
 // 2. 定义变量用于响应解析
 // ================================
@@ -95,13 +102,33 @@ static struct cat_variable sms_urc_vars[] = {
         .access = CAT_VAR_ACCESS_READ_WRITE,
     },
     {
-        .name = "CONTENT",
-        .type = CAT_VAR_BUF_STRING,
+        .name = "Parameters",
+        .type = CAT_VAR_UINT_DEC,
         .data = received_sms.content,
-        .data_size = sizeof(received_sms.content),
+        .data_size = 2,
         .access = CAT_VAR_ACCESS_READ_WRITE,
     }
 };
+
+static struct cat_variable urc_vars[] =
+{
+    {
+        .name = "Cmd",
+        .type = CAT_VAR_BUF_STRING,
+        .data = received_sms.number,
+        .data_size = sizeof(received_sms.number),
+        .access = CAT_VAR_ACCESS_READ_WRITE,
+    },
+    {
+        .name = "Parameters",
+        .type = CAT_VAR_UINT_DEC,
+        .data = received_sms.content,
+        .data_size = 1,
+        .access = CAT_VAR_ACCESS_READ_WRITE,
+        .write = net_status_handle,
+    }
+};
+
 
 // ================================
 // 3. 命令响应处理回调
@@ -246,6 +273,13 @@ static struct cat_command cmds[] = {
         .var = &net_status_vars[0],
         .var_num = 1,
     },
+    {
+        .name = "LIURC",
+        .description = "Generic URC command",
+        .read = NULL,
+        .var = urc_vars,
+        .var_num = 2,
+    }
 };
 
 // ================================
@@ -321,13 +355,18 @@ int main(void)
     struct cat_object at_obj;
     
     // 初始化cAT框架
-    cat_init(&at_obj, NULL, &io, NULL);
+    cat_init(&at_obj, &desc, &io, NULL);
     
     printf("=== 4G Module Response Handler ===\n\n");
     
     // 场景1: 模拟MCU发送查询命令后的响应
     printf("--- 场景1: MCU查询网络状态 ---\n");
     printf("MCU发送: AT+CGATT?\n");
+
+    simulate_4g_response("+LIURC: \"closed\",0\r\n");
+    while (cat_service(&at_obj) != CAT_STATUS_OK) {
+        ; // 处理完成
+    }
     
     // 模拟4G模组响应: +CGATT: 1
     simulate_4g_response("+CGATT: 1\r\nOK\r\n");
