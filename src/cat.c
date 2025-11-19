@@ -1365,14 +1365,27 @@ static int parse_buffer_string(struct cat_object* self)
         {
         case 0:
             if(ch == ' ')
+            {
                 continue; //!< skip space
-            if (ch != '"')
-                return -1;
-            state = 1;
+            }
+            else  //!<other characters enter state 1
+            {
+                if(ch != '"')
+                {
+                    ((uint8_t*) (self->var->data))[size++] = ch; //!< Save the first character if not quote
+                }
+                state = 1;
+            }
             break;
         case 1:
-            if (ch == 0)
+            if (ch == 0) //!< end of string
+            {
+                if(size)
+                {
+                    return 0; //!< normal end
+                }
                 return -1;
+            }
             if (ch == '\\')
             {
                 state = 2;

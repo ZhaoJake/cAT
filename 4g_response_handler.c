@@ -8,301 +8,437 @@
 #include <stdio.h>
 #include <string.h>
 
-// ================================
-// 1. 定义数据状态
-// ================================
+#define RETENTION_DATA
+#define log_i printf
 
-// 网络状态
-typedef struct {
-    uint8_t attach_status;      // 附着状态 (0/1)
-    uint8_t signal_strength;    // 信号强度 (0-31)
-    char ip_address[16];        // IP地址
-} network_status_t;
-
-static network_status_t net_status = {0};
-
-// SIM卡信息
-typedef struct {
-    char iccid[32];             // SIM卡ICCID
-    char imsi[32];              // IMSI
-    uint8_t registration_status; // 注册状态
-} sim_info_t;
-
-static sim_info_t sim_info = {0};
-
-// SMS相关
-typedef struct {
-    char number[32];            // 发送方号码
-    char content[256];          // 消息内容
-} sms_info_t;
-
-static sms_info_t received_sms = {0};
-
-static int net_status_handle(const struct cat_variable* var, const size_t write_size)
+/**
+ * @brief Check SIM status.
+ * @param var The variable pointer.
+ * @param write_size The write size.
+ * @return 0 on success, otherwise error code.
+ */
+static int sim_status_check_handle(const struct cat_variable* var, const size_t write_size)
 {
-    uint8_t paramter = ((uint8_t*)var->data)[0];
-    printf("\n[URC] Received paramter %u\n", paramter);
+    if (strnstr(var->data, "READY", write_size) != NULL)
+    {
+        log_i("SIM card is ready\r\n");
+    }
+    else
+    {
+        log_i("SIM card is not ready\r\n");
+    }
     return 0;
 }
 
-// ================================
-// 2. 定义变量用于响应解析
-// ================================
-
-// 网络状态变量（用于接收4G模组响应）
-static struct cat_variable net_status_vars[] = {
-    {
-        .name = "STATUS",
-        .type = CAT_VAR_UINT_DEC,
-        .data = &net_status.attach_status,
-        .data_size = sizeof(net_status.attach_status),
-        .access = CAT_VAR_ACCESS_READ_WRITE,
-    },
-    {
-        .name = "RSSI",
-        .type = CAT_VAR_UINT_DEC,
-        .data = &net_status.signal_strength,
-        .data_size = sizeof(net_status.signal_strength),
-        .access = CAT_VAR_ACCESS_READ_WRITE,
-    },
-    {
-        .name = "IP",
-        .type = CAT_VAR_BUF_STRING,
-        .data = net_status.ip_address,
-        .data_size = sizeof(net_status.ip_address),
-        .access = CAT_VAR_ACCESS_READ_WRITE,
-    }
-};
-
-// SIM信息变量
-static struct cat_variable sim_info_vars[] = {
-    {
-        .name = "ICCID",
-        .type = CAT_VAR_BUF_STRING,
-        .data = sim_info.iccid,
-        .data_size = sizeof(sim_info.iccid),
-        .access = CAT_VAR_ACCESS_READ_WRITE,
-    },
-    {
-        .name = "IMSI",
-        .type = CAT_VAR_BUF_STRING,
-        .data = sim_info.imsi,
-        .data_size = sizeof(sim_info.imsi),
-        .access = CAT_VAR_ACCESS_READ_WRITE,
-    }
-};
-
-// SMS变量（用于URC上报）
-static struct cat_variable sms_urc_vars[] = {
-    {
-        .name = "NUMBER",
-        .type = CAT_VAR_BUF_STRING,
-        .data = received_sms.number,
-        .data_size = sizeof(received_sms.number),
-        .access = CAT_VAR_ACCESS_READ_WRITE,
-    },
-    {
-        .name = "Parameters",
-        .type = CAT_VAR_UINT_DEC,
-        .data = received_sms.content,
-        .data_size = 2,
-        .access = CAT_VAR_ACCESS_READ_WRITE,
-    }
-};
-
-static struct cat_variable urc_vars[] =
+/**
+ * @brief Check IMEI.
+ * @param var The variable pointer.
+ * @param write_size The write size.
+ * @return 0 on success, otherwise error code.
+ */
+static int imei_check_handle(const struct cat_variable* var, const size_t write_size)
 {
-    {
-        .name = "Cmd",
-        .type = CAT_VAR_BUF_STRING,
-        .data = received_sms.number,
-        .data_size = sizeof(received_sms.number),
-        .access = CAT_VAR_ACCESS_READ_WRITE,
-    },
-    {
-        .name = "Parameters",
-        .type = CAT_VAR_UINT_DEC,
-        .data = received_sms.content,
-        .data_size = 1,
-        .access = CAT_VAR_ACCESS_READ_WRITE,
-        .write = net_status_handle,
-    }
-};
+    ((char*) var->data)[write_size] = '\0';
+    return 0;
+}
 
-
-// ================================
-// 3. 命令响应处理回调
-// ================================
-
-// 处理网络附着响应
-static cat_return_state cgatt_read_handler(const struct cat_command *cmd, 
-                                            uint8_t *data, 
-                                            size_t *data_size, 
-                                            const size_t max_data_size)
+/**
+ * @brief Check ICCID.
+ * @param var The variable pointer.
+ * @param write_size The write size.
+ * @return 0 on success, otherwise error code.
+ */
+static int iccid_check_handle(const struct cat_variable* var, const size_t write_size)
 {
-    printf("\n[Response] Network attach status: %d\n", net_status.attach_status);
-    printf("[Response] Signal strength: %d\n", net_status.signal_strength);
-    
-    // 根据状态触发后续操作
-    if (net_status.attach_status == 1) {
-        printf("[Status] Network attached successfully\n");
-        // 触发获取IP地址
-        // send_to_4g("AT+CGPADDR=1");
-    } else {
-        printf("[Status] Network not attached\n");
+    ((char*) var->data)[write_size] = '\0';
+    return 0;
+}
+
+/**
+ * @brief Check PDP context ready.
+ * @param var The variable pointer.
+ * @param write_size The write size.
+ * @return 0 on success, otherwise error code.
+ */
+static int pdp_ready_check_handle(const struct cat_variable* var, const size_t write_size)
+{
+    if (((uint8_t*) var->data)[0] == 1)
+    {
+        
     }
-    
+    else
+    {
+        
+    }
+    return 0;
+}
+
+/**
+ * @brief Check socket status.
+ * @param cmd The command pointer.
+ * @param data The data pointer.
+ * @param data_size The data size.
+ * @param args_num The arguments number.
+ * @return 0 on success, otherwise error code.
+ */
+static int socket_status_check_handle(const struct cat_command* cmd, const uint8_t* data, const size_t data_size, const size_t args_num)
+{
+    uint8_t link_id    = ((uint8_t*) cmd->var[0].data)[0];
+    uint8_t link_state = ((uint8_t*) cmd->var[5].data)[0];
+    log_i("Link %u state: %u\r\n", link_id, link_state);
+    if (link_state == 2)
+    {
+        
+    }
+    else
+    {
+        
+    }
     return CAT_RETURN_STATE_OK;
 }
 
-// 处理IP地址响应
-static cat_return_state cgpaddr_read_handler(const struct cat_command *cmd, 
-                                             uint8_t *data, 
-                                             size_t *data_size, 
-                                             const size_t max_data_size)
+/**
+ * @brief Check send data result.
+ * @param var The variable pointer.
+ * @param write_size The write size.
+ * @return 0 on success, otherwise error code.
+ */
+static int send_data_result_check_handle(const struct cat_variable* var, const size_t write_size)
 {
-    printf("\n[Response] IP Address: %s\n", net_status.ip_address);
+    uint32_t total_send_bytes = ((uint32_t*) var->data)[0];
     
-    if (strcmp(net_status.ip_address, "0.0.0.0") != 0) {
-        printf("[Status] Got IP address successfully\n");
-        // 可以开始TCP连接等操作
+    return 0;
+}
+
+/**
+ * @brief Handle URC.
+ * @param cmd The command pointer.
+ * @param data The data pointer.
+ * @param data_size The data size.
+ * @param args_num The arguments number.
+ * @return 0 on success, otherwise error code.
+ */
+static int urc_handle(const struct cat_command* cmd, const uint8_t* data, const size_t data_size, const size_t args_num)
+{
+    char*  cmd_str = (char*) cmd->var[0].data;
+    int8_t param   = ((int8_t*) cmd->var[1].data)[0];
+    if (strstr(cmd_str, "recv")) //!< URC: +LIURC: recv
+    {
+        log_i("URC: Receive data from link %d\r\n", param);
+        
     }
-    
+    else if (strstr(cmd_str, "closed")) //!< URC: +LIURC: closed
+    {
+        log_i("URC: Link %d closed\r\n", param);
+    }
+    else if (strstr(cmd_str, "pdpdeact")) //!< URC: +LIURC: pdpdeact
+    {
+        log_i("URC: PDP context %d deactivated\r\n", param);
+    }
     return CAT_RETURN_STATE_OK;
 }
 
-// 处理信号强度响应
-static cat_return_state csq_read_handler(const struct cat_command *cmd, 
-                                         uint8_t *data, 
-                                         size_t *data_size, 
-                                         const size_t max_data_size)
+/**
+ * @brief Read data handle.
+ * @param var The variable pointer.
+ * @param write_size The write size.
+ * @return 0 on success, otherwise error code.
+ */
+static int read_data_handle(const struct cat_variable* var, const size_t write_size)
 {
-    printf("\n[Response] Signal strength: %d\n", net_status.signal_strength);
-    
-    if (net_status.signal_strength > 20) {
-        printf("[Status] Good signal quality\n");
-    } else if (net_status.signal_strength > 10) {
-        printf("[Status] Acceptable signal quality\n");
-    } else {
-        printf("[Status] Poor signal quality\n");
-    }
-    
-    return CAT_RETURN_STATE_OK;
+    uint16_t read_data_len = ((uint16_t*) var->data)[0];
+    log_i("Read data from link %u length: %u\r\n", 0, read_data_len);
+    return 0;
 }
 
-// ================================
-// 4. URC事件处理回调
-// ================================
+/// AT Cmd variables definition
+#define AT_VAR_BUF_SIZE 64U
+static char g_at_var_buf[AT_VAR_BUF_SIZE] = {0};
+// SIM card status variable definition
+static struct cat_variable g_sim_ready_var[] = {{
+    .name      = "SIM_STATUS",
+    .type      = CAT_VAR_BUF_STRING,
+    .data      = g_at_var_buf,
+    .data_size = AT_VAR_BUF_SIZE,
+    .access    = CAT_VAR_ACCESS_READ_WRITE,
+    .write     = sim_status_check_handle,
+}};
 
-// 处理SMS接收URC
-static cat_return_state sms_received_read_handler(const struct cat_command *cmd, 
-                                                  uint8_t *data, 
-                                                  size_t *data_size, 
-                                                  const size_t max_data_size)
+// IMEI variable definition
+static struct cat_variable g_imei_var[] = {{
+    .name      = "IMEI",
+    .type      = CAT_VAR_BUF_STRING,
+    .data      = g_at_var_buf,
+    .data_size = AT_VAR_BUF_SIZE,
+    .access    = CAT_VAR_ACCESS_READ_WRITE,
+    .write     = imei_check_handle,
+}};
+
+// ICCID variable definition
+static struct cat_variable g_iccid_var[] = {{
+    .name      = "ICCID",
+    .type      = CAT_VAR_BUF_STRING,
+    .data      = g_at_var_buf,
+    .data_size = AT_VAR_BUF_SIZE,
+    .access    = CAT_VAR_ACCESS_READ_WRITE,
+    .write     = iccid_check_handle,
+}};
+
+// PDP context ready variable definition
+// clang-format off
+static struct cat_variable g_pdp_ready_var[] = {{
+    .name      = "Context ID",
+    .type      = CAT_VAR_UINT_DEC,
+    .data      = &g_at_var_buf[0],
+    .data_size = 1,
+    .access    = CAT_VAR_ACCESS_READ_WRITE,
+    .write     = NULL,
+},
 {
-    printf("\n[URC] SMS received from: %s\n", received_sms.number);
-    printf("[URC] Content: %s\n", received_sms.content);
-    
-    // 处理SMS内容
-    // process_sms(&received_sms);
-    
-    return CAT_RETURN_STATE_OK;
-}
+    .name      = "Context Status",
+    .type      = CAT_VAR_UINT_DEC,
+    .data      = &g_at_var_buf[1],
+    .data_size = 1,
+    .access    = CAT_VAR_ACCESS_READ_WRITE,
+    .write     = pdp_ready_check_handle,
+}};
+// clang-format on
 
-// 处理网络附着URC
-static cat_return_state cgatt_urc_handler(const struct cat_command *cmd, 
-                                          uint8_t *data, 
-                                          size_t *data_size, 
-                                          const size_t max_data_size)
-{
-    printf("\n[URC] Network attach state changed: %d\n", net_status.attach_status);
-    
-    if (net_status.attach_status == 1) {
-        printf("[URC] Network attached\n");
-        // 网络附着后立即获取IP
-        // send_to_4g("AT+CGPADDR=1");
-    } else {
-        printf("[URC] Network detached\n");
-        // 清理网络相关状态
-        strcpy(net_status.ip_address, "0.0.0.0");
-    }
-    
-    return CAT_RETURN_STATE_OK;
-}
+// socket status variable definition
+#define SERVICE_TYPE_LEN (4U)
+#define IP_ADDRESS_LEN (16U)
+#define PORT_LEN (6U)
+static struct cat_variable g_socket_status_var[] = {{
+                                                        .name      = "Connect ID",
+                                                        .type      = CAT_VAR_UINT_DEC,
+                                                        .data      = &g_at_var_buf[0],
+                                                        .data_size = 1,
+                                                        .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                        .write     = NULL,
+                                                    },
+                                                    {
+                                                        .name      = "Service Type",
+                                                        .type      = CAT_VAR_BUF_STRING,
+                                                        .data      = &g_at_var_buf[1],
+                                                        .data_size = SERVICE_TYPE_LEN,
+                                                        .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                        .write     = NULL,
+                                                    },
+                                                    {
+                                                        .name      = "IP Address",
+                                                        .type      = CAT_VAR_BUF_STRING,
+                                                        .data      = &g_at_var_buf[SERVICE_TYPE_LEN + 1],
+                                                        .data_size = IP_ADDRESS_LEN,
+                                                        .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                        .write     = NULL,
+                                                    },
+                                                    {
+                                                        .name      = "Remote Port",
+                                                        .type      = CAT_VAR_UINT_DEC,
+                                                        .data      = &g_at_var_buf[SERVICE_TYPE_LEN + 1 + IP_ADDRESS_LEN],
+                                                        .data_size = 2,
+                                                        .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                        .write     = NULL,
+                                                    },
+                                                    {
+                                                        .name      = "Local Port",
+                                                        .type      = CAT_VAR_UINT_DEC,
+                                                        .data      = &g_at_var_buf[SERVICE_TYPE_LEN + 1 + IP_ADDRESS_LEN + 2],
+                                                        .data_size = 2,
+                                                        .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                        .write     = NULL,
+                                                    },
+                                                    {
+                                                        .name      = "Socket State",
+                                                        .type      = CAT_VAR_UINT_DEC,
+                                                        .data      = &g_at_var_buf[SERVICE_TYPE_LEN + 1 + IP_ADDRESS_LEN + 2 + 2],
+                                                        .data_size = 1,
+                                                        .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                        .write     = NULL,
+                                                    },
+                                                    {
+                                                        .name      = "Context ID",
+                                                        .type      = CAT_VAR_UINT_DEC,
+                                                        .data      = &g_at_var_buf[SERVICE_TYPE_LEN + 1 + IP_ADDRESS_LEN + 2 + 2 + 1],
+                                                        .data_size = 1,
+                                                        .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                        .write     = NULL,
+                                                    },
+                                                    {
+                                                        .name      = "Server ID",
+                                                        .type      = CAT_VAR_INT_DEC,
+                                                        .data      = &g_at_var_buf[SERVICE_TYPE_LEN + 1 + IP_ADDRESS_LEN + 2 + 2 + 1 + 1],
+                                                        .data_size = 1,
+                                                        .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                        .write     = NULL,
+                                                    },
+                                                    {
+                                                        .name      = "Access Mode",
+                                                        .type      = CAT_VAR_UINT_DEC,
+                                                        .data      = &g_at_var_buf[SERVICE_TYPE_LEN + 1 + IP_ADDRESS_LEN + 2 + 2 + 1 + 1 + 1],
+                                                        .data_size = 1,
+                                                        .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                        .write     = NULL,
+                                                    },
+                                                    {
+                                                        .name      = "AT Port",
+                                                        .type      = CAT_VAR_BUF_STRING,
+                                                        .data      = &g_at_var_buf[SERVICE_TYPE_LEN + 1 + IP_ADDRESS_LEN + 2 + 2 + 1 + 1 + 1 + 1],
+                                                        .data_size = PORT_LEN,
+                                                        .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                        .write     = NULL,
+                                                    }};
+/// Send data result variable definition
+static struct cat_variable g_send_data_result_var[] = {{
+    .name      = "Total Send Bytes",
+    .type      = CAT_VAR_UINT_DEC,
+    .data      = &g_at_var_buf[0],
+    .data_size = 4,
+    .access    = CAT_VAR_ACCESS_READ_WRITE,
+    .write     = send_data_result_check_handle,
+}};
 
-// ================================
-// 5. 定义AT命令（用于解析响应和URC）
-// ================================
+/// URC Cmd variables definition
+#define URC_CMD_LEN (20U)
+static struct cat_variable g_urc_var[] = {{
+                                              .name      = "CMD",
+                                              .type      = CAT_VAR_BUF_STRING,
+                                              .data      = g_at_var_buf,
+                                              .data_size = URC_CMD_LEN,
+                                              .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                              .write     = NULL,
+                                          },
+                                          {
+                                              .name      = "Parameter",
+                                              .type      = CAT_VAR_INT_DEC,
+                                              .data      = &g_at_var_buf[URC_CMD_LEN],
+                                              .data_size = 1,
+                                              .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                              .write     = NULL,
+                                          }};
 
-static struct cat_command cmds[] = {
-    // 响应类命令（MCU查询4G模组状态）
+/// read data variable definition
+static struct cat_variable g_read_data_var[] = {{
+    .name      = "Read Data",
+    .type      = CAT_VAR_UINT_DEC,
+    .data      = g_at_var_buf,
+    .data_size = 2,
+    .access    = CAT_VAR_ACCESS_READ_WRITE,
+    .write     = read_data_handle,
+}};
+
+/// AT Cmd commands definition
+static struct cat_command g_at_cmds[] = {
     {
-        .name = "+CGATT",
-        .description = "Network attach status",
-        .read = cgatt_read_handler,
-        .var = &net_status_vars[0],  // 只解析STATUS
-        .var_num = 1,
+        .name           = "CPIN",
+        .description    = "SIM card check",
+        .var            = g_sim_ready_var,
+        .var_num        = sizeof(g_sim_ready_var) / sizeof(g_sim_ready_var[0]),
+        .need_all_vars  = true,
+        .only_test      = false,
+        .disable        = false,
+        .implicit_write = false,
     },
     {
-        .name = "+CGPADDR",
-        .description = "Get IP address",
-        .read = cgpaddr_read_handler,
-        .var = &net_status_vars[2],  // 只解析IP
-        .var_num = 1,
+        .name           = "LGSN",
+        .description    = "IMEI check",
+        .var            = g_imei_var,
+        .var_num        = sizeof(g_imei_var) / sizeof(g_imei_var[0]),
+        .need_all_vars  = true,
+        .only_test      = false,
+        .disable        = false,
+        .implicit_write = false,
     },
     {
-        .name = "+CSQ",
-        .description = "Signal quality",
-        .read = csq_read_handler,
-        .var = &net_status_vars[1],  // 只解析RSSI
-        .var_num = 1,
-    },
-    
-    // URC类命令（4G模组主动上报）
-    {
-        .name = "+CMTI",
-        .description = "New SMS indicator",
-        .read = sms_received_read_handler,
-        .var = sms_urc_vars,
-        .var_num = 2,
+        .name           = "CCID",
+        .description    = "ICCID check",
+        .var            = g_iccid_var,
+        .var_num        = sizeof(g_iccid_var) / sizeof(g_iccid_var[0]),
+        .need_all_vars  = true,
+        .only_test      = false,
+        .disable        = false,
+        .implicit_write = false,
     },
     {
-        .name = "CGATT",
-        .description = "Network attach URC",
-        .read = cgatt_urc_handler,
-        .var = &net_status_vars[0],
-        .var_num = 1,
+        .name           = "LIACT",
+        .description    = "PDP context ready check",
+        .var            = g_pdp_ready_var,
+        .var_num        = sizeof(g_pdp_ready_var) / sizeof(g_pdp_ready_var[0]),
+        .need_all_vars  = true,
+        .only_test      = false,
+        .disable        = false,
+        .implicit_write = false,
     },
     {
-        .name = "LIURC",
-        .description = "Generic URC command",
-        .read = NULL,
-        .var = urc_vars,
-        .var_num = 2,
-    }
+        .name           = "LISTATE",
+        .description    = "Check socket state",
+        .var            = g_socket_status_var,
+        .var_num        = sizeof(g_socket_status_var) / sizeof(g_socket_status_var[0]),
+        .need_all_vars  = true,
+        .only_test      = false,
+        .disable        = false,
+        .implicit_write = false,
+        .write          = socket_status_check_handle,
+    },
+    {
+        .name           = "LISEND",
+        .description    = "Send data",
+        .var            = g_send_data_result_var,
+        .var_num        = sizeof(g_send_data_result_var) / sizeof(g_send_data_result_var[0]),
+        .need_all_vars  = true,
+        .only_test      = false,
+        .disable        = false,
+        .implicit_write = false,
+    },
+    {
+        .name           = "LIURC",
+        .description    = "Check URC",
+        .var            = g_urc_var,
+        .var_num        = sizeof(g_urc_var) / sizeof(g_urc_var[0]),
+        .need_all_vars  = true,
+        .only_test      = false,
+        .disable        = false,
+        .implicit_write = false,
+        .write          = urc_handle,
+    },
+    {
+        .name           = "LIRD",
+        .description    = "Read data",
+        .var            = g_read_data_var,
+        .var_num        = sizeof(g_read_data_var) / sizeof(g_read_data_var[0]),
+        .need_all_vars  = true,
+        .only_test      = false,
+        .disable        = false,
+        .implicit_write = false,
+    },
 };
 
-// ================================
-// 6. 命令组和描述符
-// ================================
-
-static struct cat_command_group cmd_group = {
-    .name = "4g_responses",
-    .cmd = cmds,
-    .cmd_num = sizeof(cmds) / sizeof(cmds[0]),
+/// AT Cmd group definition
+static struct cat_command_group g_at_cmd_group = {
+    .name    = "Lierda 5G Module AT Commands",
+    .cmd     = g_at_cmds,
+    .cmd_num = sizeof(g_at_cmds) / sizeof(g_at_cmds[0]),
+    .disable = false,
 };
 
-static struct cat_command_group *groups[] = {
-    &cmd_group
+static struct cat_command_group* g_at_cmd_groups[] = {
+    &g_at_cmd_group,
 };
 
-static char working_buf[256];
+/// AT Cmd buffer definition
+#define AT_CMD_BUF1_SIZE (1024U)
+#define AT_CMD_BUF2_SIZE (64U)
+RETENTION_DATA static uint8_t g_at_cmd_buf1[AT_CMD_BUF1_SIZE] = {0};
+RETENTION_DATA static uint8_t g_at_cmd_buf2[AT_CMD_BUF2_SIZE] = {0};
 
-static struct cat_descriptor desc = {
-    .cmd_group = groups,
-    .cmd_group_num = 1,
-    .buf = (uint8_t*)working_buf,
-    .buf_size = sizeof(working_buf),
+/// AT Cmd descriptor definition
+RETENTION_DATA static struct cat_descriptor g_at_cmd_desc = {
+    .cmd_group            = g_at_cmd_groups,
+    .cmd_group_num        = sizeof(g_at_cmd_groups) / sizeof(g_at_cmd_groups[0]),
+    .buf                  = g_at_cmd_buf1,
+    .buf_size             = AT_CMD_BUF1_SIZE,
+    .unsolicited_buf      = g_at_cmd_buf2,
+    .unsolicited_buf_size = AT_CMD_BUF2_SIZE,
 };
 
 // ================================
@@ -319,6 +455,13 @@ static void simulate_4g_response(const char *response)
     // 实际应用中，这里是从串口读取4G模组的响应
     strcpy(io_buffer, response);
     io_buffer_len = strlen(response);
+    io_buffer_pos = 0;
+}
+
+static void simulate_4g_response_raw(uint16_t len, uint8_t *data)
+{
+    memcpy(io_buffer, data, len);
+    io_buffer_len = len;
     io_buffer_pos = 0;
 }
 
@@ -354,92 +497,20 @@ int main(void)
 {
     struct cat_object at_obj;
     
-    // 初始化cAT框架
-    cat_init(&at_obj, &desc, &io, NULL);
+    cat_init(&at_obj, &g_at_cmd_desc, &io, NULL);
     
     printf("=== 4G Module Response Handler ===\n\n");
-    
-    // 场景1: 模拟MCU发送查询命令后的响应
-    printf("--- 场景1: MCU查询网络状态 ---\n");
-    printf("MCU发送: AT+CGATT?\n");
 
-    simulate_4g_response("+LIURC: \"closed\",0\r\n");
+    // char test_data[]={0x41, 0x54, 2B 43 50 49 4E 3F 0D 0D 0A 2B 43 50 49 4E 3A 20 52 45 41 44 59 0D 0A 0D 0A 4F 4B 0D 0A };
+    uint8_t test_data[] = {
+        0x41, 0x54, 0x2B, 0x43, 0x50, 0x49, 0x4E, 0x3F, 0x0D, 0x0D, 0x0A,
+        0x2B, 0x43, 0x50, 0x49, 0x4E, 0x3A, 0x20, 0x52, 0x45, 0x41, 0x44,
+        0x59, 0x0D, 0x0A, 0x0D, 0x0A, 0x4F, 0x4B, 0x0D, 0x0A
+    };
+    // simulate_4g_response("+LIURC: \"closed\",0\r\n");
+    simulate_4g_response_raw(sizeof(test_data), test_data);
     while (cat_service(&at_obj) != CAT_STATUS_OK) {
         ; // 处理完成
     }
-    
-    // 模拟4G模组响应: +CGATT: 1
-    simulate_4g_response("+CGATT: 1\r\nOK\r\n");
-    
-    // 处理响应
-    while (cat_service(&at_obj) != CAT_STATUS_OK) {
-        ; // 处理完成
-    }
-    
-    printf("\n--- 场景2: MCU查询信号强度 ---\n");
-    printf("MCU发送: AT+CSQ?\n");
-    
-    // 模拟4G模组响应: +CSQ: 25,99
-    simulate_4g_response("+CSQ: 25,99\r\nOK\r\n");
-    
-    while (cat_service(&at_obj) != CAT_STATUS_OK) {
-        ; // 处理完成
-    }
-    
-    // 场景2: 处理URC上报
-    printf("\n--- 场景3: 4G模组主动上报SMS ---\n");
-    printf("URC上报: +CMTI: \"SM\",5\n");
-    
-    // 模拟URC上报: +CMTI: "SM",5
-    simulate_4g_response("+CMTI: \"SM\",5\r\n");
-    
-    while (cat_service(&at_obj) != CAT_STATUS_OK) {
-        ; // 处理完成
-    }
-    
-    printf("\n--- 场景4: 4G模组主动上报网络附着 ---\n");
-    printf("URC上报: +CGATT: 1\n");
-    
-    // 模拟URC上报: +CGATT: 1
-    simulate_4g_response("+CGATT: 1\r\n");
-    
-    while (cat_service(&at_obj) != CAT_STATUS_OK) {
-        ; // 处理完成
-    }
-    
     return 0;
 }
-
-// ================================
-// 9. 使用说明
-// ================================
-
-/*
- * 使用流程：
- * 
- * 1. 响应处理流程（MCU主动查询）:
- *    MCU发送命令: AT+CGATT?
- *        ↓CAT_RETURN_STATE_PRINT_CMD_LIST_OK
- *    4G模组响应: +CGATT: 1
- *        ↓
- *    cAT框架解析: 识别为+Cgatt响应，解析参数STATUS=1
- *        ↓
- *    调用回调: cgatt_read_handler()
- *        ↓
- *    应用程序处理: 根据状态做后续操作
- * 
- * 2. URC处理流程（4G模组主动上报）:
- *    4G模组上报: +CGATT: 1
- *        ↓
- *    cAT框架解析: 识别为+Cgatt URC，解析参数
- *        ↓
- *    调用回调: cgatt_urc_handler()
- *        ↓
- *    应用程序处理: 网络状态变化通知
- * 
- * 关键点：
- * - cAT框架自动识别命令和解析参数
- * - 通过变量映射自动将数据存储到应用层变量
- * - 通过回调函数处理具体的业务逻辑
- */
-
