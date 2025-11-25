@@ -248,6 +248,18 @@ struct cat_mutex_interface
     int (*unlock)(void); /* unlock mutex handler. return 0 if successfully unlocked, otherwise - cannot unlock */
 };
 
+/**
+ * Prompt character detection callback function handler
+ *
+ * This callback function is called when a prompt character (e.g., '>') is detected
+ * in the input stream during IDLE state. This is useful for handling AT commands
+ * that require data input after receiving a prompt character.
+ *
+ * @param prompt_char The detected prompt character (e.g., '>')
+ * @return 0 on success, otherwise error code
+ */
+typedef int (*cat_prompt_detected_handler)(char prompt_char);
+
 /* structure with at command descriptor */
 struct cat_command
 {
@@ -372,6 +384,8 @@ struct cat_object
     int         write_state;         /* before, data, after flush io write state */
     cat_state   write_state_after;   /* parser state to set after flush io write */
     bool        implicit_write_flag; /* flag that implicit write was detected */
+
+    cat_prompt_detected_handler prompt_handler; /* callback function for prompt character detection (e.g., '>') */
 
     struct cat_unsolicited_fsm unsolicited_fsm;
 };
@@ -525,6 +539,17 @@ struct cat_command const* cat_get_processed_command(struct cat_object* self, cat
  *         CAT_STATUS_BUSY - command is waiting in buffer or is processed
  */
 cat_status cat_is_unsolicited_event_buffered(struct cat_object* self, struct cat_command const* cmd, cat_cmd_type type);
+
+/**
+ * Function used to set prompt character detection callback.
+ * When a prompt character (e.g., '>') is detected in IDLE state, the callback will be called.
+ * This is useful for handling AT commands that require data input after receiving a prompt.
+ *
+ * @param self pointer to at command parser object
+ * @param handler callback function to be called when prompt character is detected, NULL to disable
+ * @return CAT_STATUS_OK on success, otherwise error code
+ */
+cat_status cat_set_prompt_handler(struct cat_object* self, cat_prompt_detected_handler handler);
 
 // NOLINTEND
 

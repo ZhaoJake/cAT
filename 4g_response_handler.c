@@ -7,9 +7,11 @@
 #include "src/cat.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #define RETENTION_DATA
 #define log_i printf
+#define log_e printf
 
 /**
  * @brief Check SIM status.
@@ -149,6 +151,76 @@ static int read_data_handle(const struct cat_variable* var, const size_t write_s
     uint16_t read_data_len = ((uint16_t*) var->data)[0];
     log_i("Read data from link %u length: %u\r\n", 0, read_data_len);
     return 0;
+}
+
+/**
+ * @brief Network status check handle.
+ * @param cmd The command pointer.
+ * @param data The data pointer.
+ * @param data_size The data size.
+ * @param args_num The arguments number.
+ * @return 0 on success, otherwise error code.
+ */
+static int network_status_check_handle(const struct cat_command* cmd, const uint8_t* data, const size_t data_size, const size_t args_num)
+{
+    char* act_type = ((char*) cmd->var[0].data);
+    if (strstr(act_type, "LTE"))
+    {
+        log_i("Cur cell network is LTE\r\n");
+        char* end  = NULL;
+        long  rssi = strtol(((char*) cmd->var[10].data), &end, 10); // NOLINT
+        if (*end != '\0')
+        {
+            log_e("RSSI is not a number\r\n");
+        }
+        else
+        {
+            log_i("Cur RSSI: %d\r\n", rssi);
+        }
+        end      = NULL;
+        long snr = strtol(((char*) cmd->var[13].data), &end, 10); // NOLINT
+        if (*end != '\0')
+        {
+            log_e("SNR is not a number\r\n");
+        }
+        else
+        {
+            log_i("Cur SNR: %d\r\n", snr);
+        }
+    }
+    else if (strstr(act_type, "NR"))
+    {
+        log_i("Cur cell network is NR\r\n");
+        char* end  = NULL;
+        long  rssi = strtol(((char*) cmd->var[10].data), &end, 10); // NOLINT
+        if (*end != '\0')
+        {
+            log_e("RSSI is not a number\r\n");
+        }
+        else
+        {
+            log_i("Cur RSSI: %d\r\n", rssi);
+        }
+        end      = NULL;
+        long snr = strtol(((char*) cmd->var[12].data), &end, 10); // NOLINT
+        if (*end != '\0')
+        {
+            log_e("SNR is not a number\r\n");
+        }
+        else
+        {
+            log_i("Cur SNR: %d\r\n", snr);
+        }
+    }
+    else if (strstr(act_type, "WCDMA"))
+    {
+        log_i("Cur cell network is WCDMA\r\n");
+    }
+    else
+    {
+        log_i("Cur cell network is unknown\r\n");
+    }
+    return CAT_RETURN_STATE_OK;
 }
 
 /// AT Cmd variables definition
@@ -327,6 +399,120 @@ static struct cat_variable g_read_data_var[] = {{
     .write     = read_data_handle,
 }};
 
+/// Network status variable definition
+static struct cat_variable g_network_status_var[] = {{
+                                                         .name      = "act_type",
+                                                         .type      = CAT_VAR_BUF_STRING,
+                                                         .data      = g_at_var_buf,
+                                                         .data_size = 10,
+                                                         .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                         .write     = NULL,
+                                                     },
+                                                     {
+                                                         .name      = "PCID",
+                                                         .type      = CAT_VAR_BUF_STRING,
+                                                         .data      = &g_at_var_buf[10],
+                                                         .data_size = 10,
+                                                         .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                         .write     = NULL,
+                                                     },
+                                                     {
+                                                         .name      = "state",
+                                                         .type      = CAT_VAR_BUF_STRING,
+                                                         .data      = &g_at_var_buf[20],
+                                                         .data_size = 10,
+                                                         .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                         .write     = NULL,
+                                                     },
+                                                     {
+                                                         .name      = "MCC",
+                                                         .type      = CAT_VAR_BUF_STRING,
+                                                         .data      = &g_at_var_buf[30],
+                                                         .data_size = 5,
+                                                         .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                         .write     = NULL,
+                                                     },
+                                                     {
+                                                         .name      = "MNC",
+                                                         .type      = CAT_VAR_BUF_STRING,
+                                                         .data      = &g_at_var_buf[35],
+                                                         .data_size = 5,
+                                                         .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                         .write     = NULL,
+                                                     },
+                                                     {
+                                                         .name      = "TAC",
+                                                         .type      = CAT_VAR_BUF_STRING,
+                                                         .data      = &g_at_var_buf[40],
+                                                         .data_size = 5,
+                                                         .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                         .write     = NULL,
+                                                     },
+                                                     {
+                                                         .name      = "arfcn",
+                                                         .type      = CAT_VAR_BUF_STRING,
+                                                         .data      = &g_at_var_buf[45],
+                                                         .data_size = 10,
+                                                         .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                         .write     = NULL,
+                                                     },
+                                                     {
+                                                         .name      = "band",
+                                                         .type      = CAT_VAR_BUF_STRING,
+                                                         .data      = &g_at_var_buf[55],
+                                                         .data_size = 5,
+                                                         .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                         .write     = NULL,
+                                                     },
+                                                     {
+                                                         .name      = "UL_bandwidth",
+                                                         .type      = CAT_VAR_BUF_STRING,
+                                                         .data      = &g_at_var_buf[60],
+                                                         .data_size = 5,
+                                                         .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                         .write     = NULL,
+                                                     },
+                                                     {
+                                                         .name      = "DL_bandwidth",
+                                                         .type      = CAT_VAR_BUF_STRING,
+                                                         .data      = &g_at_var_buf[65],
+                                                         .data_size = 5,
+                                                         .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                         .write     = NULL,
+                                                     },
+                                                     {
+                                                         .name      = "RSRP",
+                                                         .type      = CAT_VAR_BUF_STRING,
+                                                         .data      = &g_at_var_buf[70],
+                                                         .data_size = 5,
+                                                         .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                         .write     = NULL,
+                                                     },
+                                                     {
+                                                         .name      = "RSRQ",
+                                                         .type      = CAT_VAR_BUF_STRING,
+                                                         .data      = &g_at_var_buf[75],
+                                                         .data_size = 5,
+                                                         .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                         .write     = NULL,
+                                                     },
+                                                     {
+                                                         .name      = "RSSI",
+                                                         .type      = CAT_VAR_BUF_STRING,
+                                                         .data      = &g_at_var_buf[80],
+                                                         .data_size = 5,
+                                                         .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                         .write     = NULL,
+                                                     },
+                                                     {
+                                                         .name      = "SINR",
+                                                         .type      = CAT_VAR_BUF_STRING,
+                                                         .data      = &g_at_var_buf[85],
+                                                         .data_size = 5,
+                                                         .access    = CAT_VAR_ACCESS_READ_WRITE,
+                                                         .write     = NULL,
+                                                     }};
+
 /// AT Cmd commands definition
 static struct cat_command g_at_cmds[] = {
     {
@@ -410,6 +596,17 @@ static struct cat_command g_at_cmds[] = {
         .only_test      = false,
         .disable        = false,
         .implicit_write = false,
+    },
+    {
+        .name           = "LSERVCELINFO",
+        .description    = "Get cell network information",
+        .var            = g_network_status_var,
+        .var_num        = sizeof(g_network_status_var) / sizeof(g_network_status_var[0]),
+        .need_all_vars  = false,
+        .only_test      = false,
+        .disable        = false,
+        .implicit_write = false,
+        .write          = network_status_check_handle,
     },
 };
 
@@ -502,13 +699,15 @@ int main(void)
     printf("=== 4G Module Response Handler ===\n\n");
 
     // char test_data[]={0x41, 0x54, 2B 43 50 49 4E 3F 0D 0D 0A 2B 43 50 49 4E 3A 20 52 45 41 44 59 0D 0A 0D 0A 4F 4B 0D 0A };
-    uint8_t test_data[] = {
-        0x41, 0x54, 0x2B, 0x43, 0x50, 0x49, 0x4E, 0x3F, 0x0D, 0x0D, 0x0A,
-        0x2B, 0x43, 0x50, 0x49, 0x4E, 0x3A, 0x20, 0x52, 0x45, 0x41, 0x44,
-        0x59, 0x0D, 0x0A, 0x0D, 0x0A, 0x4F, 0x4B, 0x0D, 0x0A
-    };
-    // simulate_4g_response("+LIURC: \"closed\",0\r\n");
-    simulate_4g_response_raw(sizeof(test_data), test_data);
+    // uint8_t test_data[] = {
+    //     0x41, 0x54, 0x2B, 0x43, 0x50, 0x49, 0x4E, 0x3F, 0x0D, 0x0D, 0x0A,
+    //     0x2B, 0x43, 0x50, 0x49, 0x4E, 0x3A, 0x20, 0x52, 0x45, 0x41, 0x44,
+    //     0x59, 0x0D, 0x0A, 0x0D, 0x0A, 0x4F, 0x4B, 0x0D, 0x0A
+    // };
+    // char test_data[]= "+LISTATE: 0,\"TCP\",\"112.125.89.8\",33859,0,2,1,-1,0,\"uart\"\r\nOK\r\n";
+    char test_data[] = "+LSERVCELINFO: \"LTE\",444,\"CONNECT\",460,00,5088,38950,40,5,5,-76,-6,-49,34\r\n\r\nOK\r\n";
+    // simulate_4g_response_raw(sizeof(test_data), test_data);
+    simulate_4g_response(test_data);
     while (cat_service(&at_obj) != CAT_STATUS_OK) {
         ; // 处理完成
     }

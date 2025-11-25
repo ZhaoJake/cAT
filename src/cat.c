@@ -1364,13 +1364,13 @@ static int parse_buffer_string(struct cat_object* self)
         switch (state)
         {
         case 0:
-            if(ch == ' ')
+            if (ch == ' ')
             {
                 continue; //!< skip space
             }
-            else  //!<other characters enter state 1
+            else //!< other characters enter state 1
             {
-                if(ch != '"')
+                if (ch != '"')
                 {
                     ((uint8_t*) (self->var->data))[size++] = ch; //!< Save the first character if not quote
                 }
@@ -1378,11 +1378,13 @@ static int parse_buffer_string(struct cat_object* self)
             }
             break;
         case 1:
-            if (ch == 0) //!< end of string
+            if (ch == 0 || ch == ',') //!< end of string, cat will add null character automatically
             {
-                if(size)
+                if (size)
                 {
-                    return 0; //!< normal end
+                    self->position--; //!< put back the null character for next processing
+                    state = 3;
+                    break;
                 }
                 return -1;
             }
@@ -2223,6 +2225,13 @@ static cat_status process_idle_state(struct cat_object* self)
         prepare_parse_command(self);
         self->state = CAT_STATE_PARSE_COMMAND_CHAR;
         break;
+    case '>': //!< prompt character detected (e.g., for AT+LISEND data input)
+        if (self->prompt_handler != NULL)
+        {
+            self->prompt_handler('>');
+        }
+        // Continue to IDLE state after handling prompt
+        break;
     case '\n':
     case '\r':
         break;
@@ -2955,6 +2964,21 @@ cat_status cat_service(struct cat_object* self)
         return CAT_STATUS_ERROR_MUTEX_UNLOCK;
 
     return s;
+}
+
+cat_status cat_set_prompt_handler(struct cat_object* self, cat_prompt_detected_handler handler)
+{
+    assert(self != NULL);
+
+    if ((self->mutex != NULL) && (self->mutex->lock() != 0))
+        return CAT_STATUS_ERROR_MUTEX_LOCK;
+
+    self->prompt_handler = handler;
+
+    if ((self->mutex != NULL) && (self->mutex->unlock() != 0))
+        return CAT_STATUS_ERROR_MUTEX_UNLOCK;
+
+    return CAT_STATUS_OK;
 }
 
 // NOLINTEND
